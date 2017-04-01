@@ -29,9 +29,9 @@ func (t SigchainV2Type) NeedsSignature() bool {
 	switch t {
 	case SigchainV2TypeTrack, SigchainV2TypeUntrack,
 		SigchainV2TypeCryptocurrency, SigchainV2TypeAnnouncement:
-		return true
-	default:
 		return false
+	default:
+		return true
 	}
 }
 
