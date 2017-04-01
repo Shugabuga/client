@@ -25,6 +25,16 @@ const (
 	SigchainV2TypePGPUpdate                   SigchainV2Type = 13
 )
 
+func (t SigchainV2Type) NeedsSignature() bool {
+	switch t {
+	case SigchainV2TypeTrack, SigchainV2TypeUntrack,
+		SigchainV2TypeCryptocurrency, SigchainV2TypeAnnouncement:
+		return true
+	default:
+		return false
+	}
+}
+
 // OuterLinkV2 is the second version of Keybase sigchain signatures.
 type OuterLinkV2 struct {
 	_struct  bool           `codec:",toarray"`
@@ -46,7 +56,7 @@ func (o OuterLinkV2) Encode() ([]byte, error) {
 	return MsgpackEncode(o)
 }
 
-func DecodeCompressedOuterLinkV2(b64encoded string) (*OuterLinkV2WithMetadata, error) {
+func DecodeStubbedOuterLinkV2(b64encoded string) (*OuterLinkV2WithMetadata, error) {
 	payload, err := base64.StdEncoding.DecodeString(b64encoded)
 	if err != nil {
 		return nil, err
@@ -56,7 +66,11 @@ func DecodeCompressedOuterLinkV2(b64encoded string) (*OuterLinkV2WithMetadata, e
 	if err != nil {
 		return nil, err
 	}
-	return &OuterLinkV2WithMetadata{OuterLinkV2: ol}, nil
+	return &OuterLinkV2WithMetadata{OuterLinkV2: ol, raw: payload}, nil
+}
+
+func (o OuterLinkV2WithMetadata) EncodeStubbed() string {
+	return base64.StdEncoding.EncodeToString(o.raw)
 }
 
 func DecodeOuterLinkV2(armored string) (*OuterLinkV2WithMetadata, error) {

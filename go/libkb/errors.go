@@ -1003,6 +1003,18 @@ func (s SigchainV2Error) Error() string {
 	return fmt.Sprintf("Error in sigchain v2 link: %s", s.msg)
 }
 
+type SigchainV2StubbedFirstLinkError struct{}
+
+func (s SigchainV2StubbedFirstLinkError) Error() string {
+	return "First link can't be stubbed out"
+}
+
+type SigchainV2StubbedSignatureNeededError struct{}
+
+func (s SigchainV2StubbedSignatureNeededError) Error() string {
+	return "Stubbed-out link actually needs a signature"
+}
+
 //=============================================================================
 
 type ReverseSigError struct {

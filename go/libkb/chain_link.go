@@ -100,7 +100,9 @@ type ChainLinkUnpacked struct {
 	username       string
 	typ            string
 	proofText      string
+	outerLinkV2    *OuterLinkV2WithMetadata
 	sigVersion     int
+	stubbed        bool
 }
 
 // A template for some of the reasons in badChainLinks below.
@@ -199,7 +201,6 @@ type ChainLink struct {
 	payloadJSON *jsonw.Wrapper
 	unpacked    *ChainLinkUnpacked
 	cki         *ComputedKeyInfos
-	outerLinkV2 *OuterLinkV2WithMetadata
 
 	typed                  TypedChainLink
 	isOwnNewLinkFromServer bool
@@ -227,22 +228,16 @@ func (c *ChainLink) getPrevFromPayload() LinkID {
 	return c.unpacked.prev
 }
 
-func (c *ChainLink) IsCompacted() bool {
-	return c.unpacked == nil
+func (c *ChainLink) IsStubbed() bool {
+	return c.unpacked.stubbed
 }
 
 func (c *ChainLink) GetPrev() LinkID {
-	if !c.IsCompacted() {
-		return c.getPrevFromPayload()
-	}
-	if c.outerLinkV2 != nil {
-		return c.outerLinkV2.Prev
-	}
-	return nil
+	return c.unpacked.prev
 }
 
 func (c *ChainLink) GetCTime() time.Time {
-	if c.IsCompacted() {
+	if c.IsStubbed() {
 		return time.Time{}
 	}
 
@@ -250,16 +245,13 @@ func (c *ChainLink) GetCTime() time.Time {
 }
 
 func (c *ChainLink) GetETime() time.Time {
-	if c.IsCompacted() {
+	if c.IsStubbed() {
 		return time.Time{}
 	}
 	return UnixToTimeMappingZero(c.unpacked.etime)
 }
 
 func (c *ChainLink) GetUID() keybase1.UID {
-	if c.IsCompacted() {
-		return keybase1.UID("")
-	}
 	return c.unpacked.uid
 }
 
@@ -270,7 +262,9 @@ func (c *ChainLink) GetPayloadJSON() *jsonw.Wrapper {
 func (c *ChainLink) Pack() error {
 	p := jsonw.NewDictionary()
 
-	if !c.IsCompacted() {
+	if c.IsStubbed() {
+		p.SetKey("c2", jsonw.NewString(c.unpacked.outerLinkV2.EncodeStubbed()))
+	} else {
 
 		// Store the original JSON string so its order is preserved
 		p.SetKey("payload_json", jsonw.NewString(c.unpacked.payloadJSONStr))
@@ -296,6 +290,9 @@ func (c *ChainLink) Pack() error {
 }
 
 func (c *ChainLink) GetMerkleSeqno() int {
+	if c.IsStubbed() {
+		return 0
+	}
 	i, err := c.payloadJSON.AtPath("body.merkle_root.seqno").GetInt()
 	if err != nil {
 		i = 0
@@ -304,6 +301,9 @@ func (c *ChainLink) GetMerkleSeqno() int {
 }
 
 func (c *ChainLink) GetRevocations() []keybase1.SigID {
+	if c.IsStubbed() {
+		return nil
+	}
 	var ret []keybase1.SigID
 	jw := c.payloadJSON.AtKey("body").AtKey("revoke")
 	s, err := GetSigID(jw.AtKey("sig_id"), true)
@@ -324,6 +324,9 @@ func (c *ChainLink) GetRevocations() []keybase1.SigID {
 }
 
 func (c *ChainLink) GetRevokeKids() []keybase1.KID {
+	if c.IsStubbed() {
+		return nil
+	}
 	var ret []keybase1.KID
 	jw := c.payloadJSON.AtKey("body").AtKey("revoke")
 	if jw.IsNil() {
@@ -349,6 +352,9 @@ func (c *ChainLink) GetRevokeKids() []keybase1.KID {
 }
 
 func (c *ChainLink) checkAgainstMerkleTree(t *MerkleTriple) (found bool, err error) {
+	if c.IsStubbed() {
+		return false, ChainLinkError{"cannot check stubbed link against the merkle tree"}
+	}
 	found = false
 	if t != nil && c.GetSeqno() == t.Seqno {
 		c.G().Log.Debug("| Found chain tail advertised in Merkle tree @%d", int(t.Seqno))
@@ -430,25 +436,32 @@ type chainLinkPacked struct {
 	SigVerified   bool           `json:"sig_verified"`
 }
 
-func (c *ChainLink) unpackCompacted(raw string, err error) error {
+func (c *ChainLink) unpackStubbed(raw string, err error) error {
 	if err != nil {
 		return err
 	}
-	c.outerLinkV2, err = DecodeCompressedOuterLinkV2(raw)
+	var ol *OuterLinkV2WithMetadata
+	ol, err = DecodeStubbedOuterLinkV2(raw)
 	if err != nil {
 		return err
 	}
-	c.id = c.outerLinkV2.Curr
+	c.id = ol.Curr
+	c.unpacked = &ChainLinkUnpacked{
+		prev:        ol.Prev,
+		seqno:       ol.Seqno,
+		sigVersion:  ol.Version,
+		outerLinkV2: ol,
+		stubbed:     true,
+	}
 	return nil
 }
 
 func (c *ChainLink) Unpack(trusted bool, selfUID keybase1.UID) (err error) {
-	tmp := ChainLinkUnpacked{}
-
 	if jw := c.packed.AtKey("c2"); !jw.IsNil() {
-		return c.unpackCompacted(jw.GetString())
+		return c.unpackStubbed(jw.GetString())
 	}
 
+	tmp := ChainLinkUnpacked{}
 	tmp.sigID, err = GetSigID(c.packed.AtKey("sig_id"), true)
 	c.packed.AtKey("sig").GetStringVoid(&tmp.sig, &err)
 
@@ -494,7 +507,7 @@ func (c *ChainLink) Unpack(trusted bool, selfUID keybase1.UID) (err error) {
 		if c.id == nil {
 			c.id = linkID
 		}
-		c.outerLinkV2 = ol2
+		tmp.outerLinkV2 = ol2
 		sigKID = ol2.kid
 	}
 
@@ -570,7 +583,7 @@ func (c *ChainLink) CheckNameAndID(s NormalizedUsername, i keybase1.UID) error {
 
 	// We can't check name and ID if we have compacted chain link with no
 	// payload JSON
-	if c.IsCompacted() {
+	if c.IsStubbed() {
 		return nil
 	}
 
@@ -600,7 +613,7 @@ func (c *ChainLink) verifyHash() error {
 	}
 
 	// For V2 Sigchain links, we might not have the payload (to save bandwidth, etc)
-	if c.IsCompacted() {
+	if c.IsStubbed() {
 		return nil
 	}
 
@@ -625,18 +638,18 @@ func (c ChainLink) getFixedPayload() []byte {
 }
 
 func (c *ChainLink) getSigPayload() ([]byte, error) {
-	if c.IsCompacted() || c.unpacked.sigVersion == 2 {
-		if c.outerLinkV2 == nil {
-			return nil, ChainLinkError{"Cannot verify sig with nil outer link v2"}
-		}
-		return c.outerLinkV2.raw, nil
+	if c.IsStubbed() {
+		return nil, ChainLinkError{"Cannot verify sig with nil outer link v2"}
 	}
-
-	if c.unpacked.sigVersion == 1 {
+	v := c.unpacked.sigVersion
+	switch v {
+	case 1:
 		return c.getFixedPayload(), nil
+	case 2:
+		return c.unpacked.outerLinkV2.raw, nil
+	default:
+		return nil, ChainLinkError{msg: fmt.Sprintf("unexpected signature version: %d", c.unpacked.sigVersion)}
 	}
-
-	return nil, ChainLinkError{msg: fmt.Sprintf("unexpected signature version: %d", c.unpacked.sigVersion)}
 }
 
 func (c *ChainLink) verifyPayloadV2() error {
@@ -647,11 +660,13 @@ func (c *ChainLink) verifyPayloadV2() error {
 
 	// If we didn't get a payload, there's nothing to verify, we just accept the
 	// outer link as is.
-	if c.GetPayloadJSON() == nil {
+	if c.IsStubbed() {
 		return nil
 	}
 
-	if c.outerLinkV2 == nil {
+	ol := c.unpacked.outerLinkV2
+
+	if ol == nil {
 		return ChainLinkError{"no outer V2 structure available"}
 	}
 
@@ -665,11 +680,11 @@ func (c *ChainLink) verifyPayloadV2() error {
 		return err
 	}
 
-	if err := c.outerLinkV2.AssertFields(version, seqno, prev, curr, linkType); err != nil {
+	if err := ol.AssertFields(version, seqno, prev, curr, linkType); err != nil {
 		return err
 	}
 
-	c.markPayloadVerified(c.outerLinkV2.sigID)
+	c.markPayloadVerified(ol.sigID)
 	return nil
 }
 
@@ -699,19 +714,10 @@ func (c *ChainLink) getSeqnoFromPayload() Seqno {
 }
 
 func (c *ChainLink) GetSeqno() Seqno {
-	if c.GetPayloadJSON() != nil {
-		return c.getSeqnoFromPayload()
-	}
-	if c.outerLinkV2 != nil {
-		return c.outerLinkV2.Seqno
-	}
-	return Seqno(-1)
+	return c.unpacked.seqno
 }
 
 func (c *ChainLink) GetSigID() keybase1.SigID {
-	if c.IsCompacted() {
-		return ""
-	}
 	return c.unpacked.sigID
 }
 
@@ -736,8 +742,8 @@ func (c *ChainLink) VerifySigWithKeyFamily(ckf ComputedKeyFamily) (err error) {
 	var verifyKID keybase1.KID
 	var sigID keybase1.SigID
 
-	if c.unpacked.sig == "" {
-		return ChainLinkError{"cannot verify signature -- none available; is this a compressed link?"}
+	if c.IsStubbed() {
+		return ChainLinkError{"cannot verify signature -- none available; is this a stubbed out link?"}
 	}
 
 	verifyKID, err = c.checkServerSignatureMetadata(ckf)
@@ -839,7 +845,7 @@ func (c *ChainLink) GetSigchainV2Type() (SigchainV2Type, error) {
 func (c *ChainLink) verifyPayload() error {
 	// We might not have an unpacked payload at all, if it's a V2 link
 	// without a body (for BW savings)
-	if c.IsCompacted() {
+	if c.IsStubbed() {
 		return nil
 	}
 	v := c.unpacked.sigVersion
@@ -944,30 +950,17 @@ func (c *ChainLink) Store(g *GlobalContext) (didStore bool, err error) {
 }
 
 func (c *ChainLink) GetPGPFingerprint() *PGPFingerprint {
-	if c.IsCompacted() {
-		return nil
-	}
 	return c.unpacked.pgpFingerprint
 }
 func (c *ChainLink) GetKID() keybase1.KID {
-	if c.IsCompacted() {
-		return keybase1.KID("")
-	}
 	return c.unpacked.kid
 }
 
 func (c *ChainLink) MatchFingerprint(fp PGPFingerprint) bool {
-	if c.IsCompacted() {
-		return false
-	}
 	return c.unpacked.pgpFingerprint != nil && fp.Eq(*c.unpacked.pgpFingerprint)
 }
 
 func (c *ChainLink) ToEldestKID() keybase1.KID {
-	if c.IsCompacted() {
-		return keybase1.KID("")
-	}
-
 	if !c.unpacked.eldestKID.IsNil() {
 		return c.unpacked.eldestKID
 	}
@@ -979,6 +972,9 @@ func (c *ChainLink) ToEldestKID() keybase1.KID {
 
 // ToLinkSummary converts a ChainLink into a MerkleTriple object.
 func (c ChainLink) ToMerkleTriple() *MerkleTriple {
+	if c.IsStubbed() {
+		return nil
+	}
 	return &MerkleTriple{
 		Seqno:  c.GetSeqno(),
 		LinkID: c.id,
@@ -1026,4 +1022,14 @@ func (c *ChainLink) Copy() ChainLink {
 
 func (c ChainLink) LinkID() LinkID {
 	return c.id
+}
+
+func (c ChainLink) NeedsSignature() bool {
+	if !c.IsStubbed() {
+		return true
+	}
+	if c.unpacked.outerLinkV2 == nil {
+		return true
+	}
+	return c.unpacked.outerLinkV2.LinkType.NeedsSignature()
 }
