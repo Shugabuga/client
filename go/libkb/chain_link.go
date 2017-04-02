@@ -263,7 +263,7 @@ func (c *ChainLink) Pack() error {
 	p := jsonw.NewDictionary()
 
 	if c.IsStubbed() {
-		p.SetKey("c2", jsonw.NewString(c.unpacked.outerLinkV2.EncodeStubbed()))
+		p.SetKey("s2", jsonw.NewString(c.unpacked.outerLinkV2.EncodeStubbed()))
 	} else {
 
 		// Store the original JSON string so its order is preserved
@@ -457,7 +457,7 @@ func (c *ChainLink) unpackStubbed(raw string, err error) error {
 }
 
 func (c *ChainLink) Unpack(trusted bool, selfUID keybase1.UID) (err error) {
-	if jw := c.packed.AtKey("c2"); !jw.IsNil() {
+	if jw := c.packed.AtKey("s2"); !jw.IsNil() {
 		return c.unpackStubbed(jw.GetString())
 	}
 
