@@ -6,7 +6,6 @@ package libkb
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"time"
 
@@ -502,7 +501,7 @@ func (c *ChainLink) Unpack(trusted bool, selfUID keybase1.UID) (err error) {
 		}
 		linkID := ol2.Curr
 		if c.id != nil && !c.id.Eq(linkID) {
-			return errors.New("chainlink hash mismatch between server and body hash")
+			return SigchainV2MismatchedHashError{}
 		}
 		if c.id == nil {
 			c.id = linkID

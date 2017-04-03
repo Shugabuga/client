@@ -76,6 +76,9 @@ func getErrorTypesMap() map[string]map[reflect.Type]bool {
 		"SIGCHAIN_V2_MISMATCHED_FIELD": {
 			reflect.TypeOf(SigchainV2MismatchedFieldError{}): true,
 		},
+		"SIGCHAIN_V2_MISMATCHED_HASH": {
+			reflect.TypeOf(SigchainV2MismatchedHashError{}): true,
+		},
 	}
 }
 

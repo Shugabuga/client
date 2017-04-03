@@ -1023,6 +1023,12 @@ func (s SigchainV2StubbedSignatureNeededError) Error() string {
 	return "Stubbed-out link actually needs a signature"
 }
 
+type SigchainV2MismatchedHashError struct{}
+
+func (s SigchainV2MismatchedHashError) Error() string {
+	return "Sigchain V2 hash mismatch error"
+}
+
 //=============================================================================
 
 type ReverseSigError struct {
