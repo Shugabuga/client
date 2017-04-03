@@ -1003,6 +1003,14 @@ func (s SigchainV2Error) Error() string {
 	return fmt.Sprintf("Error in sigchain v2 link: %s", s.msg)
 }
 
+type SigchainV2MismatchedFieldError struct {
+	msg string
+}
+
+func (s SigchainV2MismatchedFieldError) Error() string {
+	return fmt.Sprintf("Mismatched field in sigchain v2 link: %s", s.msg)
+}
+
 type SigchainV2StubbedFirstLinkError struct{}
 
 func (s SigchainV2StubbedFirstLinkError) Error() string {

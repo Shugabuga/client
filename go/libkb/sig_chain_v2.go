@@ -129,22 +129,22 @@ func SigchainV2TypeFromV1TypeAndRevocations(s string, hasRevocations bool) (Sigc
 
 func (o OuterLinkV2) AssertFields(v int, s Seqno, p LinkID, c LinkID, t SigchainV2Type) (err error) {
 	mkErr := func(format string, arg ...interface{}) error {
-		return SigchainV2Error{fmt.Sprintf(format, arg...)}
+		return SigchainV2MismatchedFieldError{fmt.Sprintf(format, arg...)}
 	}
 	if o.Version != v {
-		return mkErr("mismatch in version field (%d != %d)", o.Version, v)
+		return mkErr("version field (%d != %d)", o.Version, v)
 	}
 	if o.Seqno != s {
-		return mkErr("mismatch in seqno field: (%d != %d)", o.Seqno, s)
+		return mkErr("seqno field: (%d != %d)", o.Seqno, s)
 	}
 	if !o.Prev.Eq(p) {
-		return mkErr("mismatch in prev pointer: (%s != !%s)", o.Prev, p)
+		return mkErr("prev pointer: (%s != !%s)", o.Prev, p)
 	}
 	if !o.Curr.Eq(c) {
-		return mkErr("mismatch in curr pointer: (%s != %s)", o.Curr, c)
+		return mkErr("curr pointer: (%s != %s)", o.Curr, c)
 	}
 	if o.LinkType != t {
-		return mkErr("mismatch in link type: (%d != %d)", o.LinkType, t)
+		return mkErr("link type: (%d != %d)", o.LinkType, t)
 	}
 	return nil
 }
